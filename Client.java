@@ -6,7 +6,8 @@ public class Client {
 	
 	public static void main(String[] args) 
 	{
-		final int portNumber = 5001; 
+		final int portNumber = 34000; 
+		final String ipAdd = "128.110.219.111"; 
 		// TODO Auto-generated method stub
 		DatagramPacket sendPacket; 
 		DatagramPacket receivePacket = null; 
@@ -53,10 +54,10 @@ public class Client {
 						{
 							String message = "query players"; 
 							sendData= message.getBytes(); 
-							sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName("127.0.0.1"), 5001); 
+							sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName(ipAdd), portNumber); 
 							DatagramSocket cSocket = new DatagramSocket();
 							cSocket.send(sendPacket);
-							receivePacket = new DatagramPacket(receiveData,receiveData.length, InetAddress.getByName("127.0.0.1") , 5001); 
+							receivePacket = new DatagramPacket(receiveData,receiveData.length, InetAddress.getByName(ipAdd) , portNumber); 
 							cSocket.receive(receivePacket);
 							cSocket.close();
 							System.out.println(new String ( receivePacket.getData(), 0 , receivePacket.getLength())); 
@@ -65,10 +66,10 @@ public class Client {
 						{
 							String message = "query games"; 
 							sendData= message.getBytes();
-							sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName("127.0.0.1"), 5001); 
+							sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName(ipAdd), portNumber); 
 							DatagramSocket cSocket = new DatagramSocket();
 							cSocket.send(sendPacket);
-							receivePacket = new DatagramPacket(receiveData,receiveData.length, InetAddress.getByName("127.0.0.1") , 5001); 
+							receivePacket = new DatagramPacket(receiveData,receiveData.length, InetAddress.getByName(ipAdd) , portNumber); 
 							cSocket.receive(receivePacket);
 							cSocket.close();
 							System.out.println(new String ( receivePacket.getData(), 0 , receivePacket.getLength()));
@@ -80,10 +81,10 @@ public class Client {
 						// de register the player from the game 
 						String message = "de-register|" + command[1]; 
 						sendData= message.getBytes();
-						sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName("127.0.0.1"), 5001); 
+						sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName(ipAdd), portNumber); 
 						DatagramSocket cSocket = new DatagramSocket();
 						cSocket.send(sendPacket);
-						receivePacket = new DatagramPacket(receiveData,receiveData.length, InetAddress.getByName("127.0.0.1") , 5001); 
+						receivePacket = new DatagramPacket(receiveData,receiveData.length, InetAddress.getByName(ipAdd) , portNumber); 
 						cSocket.receive(receivePacket);
 						cSocket.close();
 						String result = new String ( receivePacket.getData(), 0 , receivePacket.getLength()); 
