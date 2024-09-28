@@ -7,16 +7,17 @@ enum gameState
 
 public class Player 
 {
-	private String name, IP, tPort, pPort; 
+	private String name, dIP, rIP, tPort, pPort; 
 	private gameState state; 
 	
-	Player(String name, String IP, String tport, String pport, gameState state)
+	Player(String name, String IP, String tport, String pport, String rIP, gameState state)
 	{
 		this.name = name; 
-		this.IP = IP; 
+		this.dIP = IP; 
 		this.state = state; 
 		this.tPort = tport; 
 		this.pPort = pport; 
+		this.rIP = rIP; 
 	}
 	
 	public String getName() 
@@ -26,7 +27,7 @@ public class Player
 	
 	public String getIP() 
 	{
-		return IP; 
+		return dIP; 
 	}
 	
 	public String getTPort() 
@@ -40,6 +41,11 @@ public class Player
 		return pPort; 
 	}
 	
+	public String getRIP() 
+	{
+		return dIP; 
+	}
+	
 	public gameState getState() 
 	{
 		return state; 
@@ -48,7 +54,7 @@ public class Player
 	@Override
 	public String toString() 
 	{
-		String result  = "( " +"Player: " +this.name + " IP: "+ this.IP +
+		String result  = "( " +"Player: " +this.name + " dest IP: " + this.dIP + "rec IP: " + this.rIP +
 				" T-Port: " + this.getTPort() + " P-Port: " + this.getPPort() + 
 				" State: " + this.getState().toString() + " )"; 
 		return result ; 

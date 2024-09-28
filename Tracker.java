@@ -47,8 +47,9 @@ public class Tracker {
 					{
 						DatagramPacket sendPacket = null; 
 						String responseMessage = ""; 
+						receivePacket.getAddress().toString(); 
 						// We got player info now create a player object and add it to the structure. 
-						if (addPlayer(command, registeredPlayers)) 
+						if (addPlayer(command, registeredPlayers, receivePacket.getAddress().toString())) 
 						{
 							// inserted new user now send a response back to the client 
 							responseMessage = "SUCCESS"; 
@@ -178,7 +179,7 @@ public class Tracker {
 		return result; 
 	}
 	
-	public static boolean addPlayer(String[] args, HashMap<String, Player> records) 
+	public static boolean addPlayer(String[] args, HashMap<String, Player> records , String address) 
 	{
 		String name, ip, tport, pport;  
 		System.out.println(args[0]);
@@ -198,7 +199,7 @@ public class Tracker {
 		else 
 		{
 			// Now add player 
-			records.put(name, new Player(name,ip,tport,pport,gameState.FREE)); 
+			records.put(name, new Player(name,ip,tport,pport, address ,gameState.FREE)); 
 			return true; 
 		}
 	} 
