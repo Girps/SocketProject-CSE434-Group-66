@@ -1,0 +1,25 @@
+commit 6b515e58052b10ae3a2716f071ea656c600373f0
+Author: Jesse Jimenez <105522853+Girps@users.noreply.github.com>
+Date:   Sat Sep 28 10:28:58 2024 -0700
+
+    Add files via upload
+
+commit f57eb34403e6d5d52a8b7febb162398ed1c2692f
+Author: Jesse Jimenez <105522853+Girps@users.noreply.github.com>
+Date:   Sat Sep 28 01:14:32 2024 -0700
+
+    Update Client.java
+    
+    updated host/ports
+
+commit bcce13c08966244c566753103789b6cfe1cc137a
+Author: Jesse Jimenez <105522853+Girps@users.noreply.github.com>
+Date:   Sat Sep 28 00:29:25 2024 -0700
+
+    Add files via upload
+
+commit c50d374d242b769d7667d36c4d4b5e1a23239387
+Author: Jesse Jimenez <105522853+Girps@users.noreply.github.com>
+Date:   Fri Sep 27 22:46:36 2024 -0700
+
+    Add files via upload
