@@ -25,20 +25,28 @@ public class Tracker {
 	
 	// Concurrent hashmaps used to avoid race conditions between threads 
 	/* Map contains registered players contains both free and in_game players */  
-	public final static ConcurrentHashMap<String, Player> registeredPlayers = new ConcurrentHashMap<String, Player>(); // this needs to be synchronized  
+	public volatile static ConcurrentHashMap<String, Player> registeredPlayers = new ConcurrentHashMap<String, Player>(); // this needs to be synchronized  
 	/* Map constains currently running games and the game object hold references to in_game players */ 
-	public final static ConcurrentHashMap<Integer, Game> games = new ConcurrentHashMap<Integer, Game>();  // this needs to be synchronize  
-	
-	public final static AtomicInteger globalGameId = new AtomicInteger(); 
+	public volatile static ConcurrentHashMap<Integer, Game> games = new ConcurrentHashMap<Integer, Game>();  // this needs to be synchronize  
+	// integers for game session
+	public volatile static AtomicInteger globalGameId = new AtomicInteger(); 
+	/* Create cached threads, threads will be create and disposed of on runtime */
+	public final static ExecutorService executor = Executors.newCachedThreadPool(); 
 	
 	public static void main(String[] args) throws ClassNotFoundException {
 		
-		/* Create cached threads, threads will be create and disposed of on runtime */
-		ExecutorService executor = Executors.newCachedThreadPool(); 
-		// Tracker server has the same port number and IP address as it needs to be found by the client 
-		int portNumber = 5001; 
-		ByteArrayOutputStream bStream = new ByteArrayOutputStream(); 
 		
+		int portNumber = -1; 
+		if(args.length != 0) 
+		{
+			portNumber = Integer.valueOf(args[0]); 
+		}
+		else 
+		{
+			portNumber = 5001;
+		}
+		// Tracker server has the same port number and IP address as it needs to be found by the client 
+		ByteArrayOutputStream bStream = new ByteArrayOutputStream(); 
 		// Exception to catch failure to port 
 		try
 		{
@@ -60,7 +68,8 @@ public class Tracker {
 				ObjectInputStream iStream = new ObjectInputStream( new ByteArrayInputStream(receivePacket.getData())); 
 				Player receivedPlayer = (Player)iStream.readObject(); 
 				iStream.close(); 
-				
+				//System.out.println(receivedPlayer.getMessage()); 
+				//System.out.println(receivedPlayer.getCommand()); 
 				// got the player check if the player is in the game 
 				if ( receivedPlayer.getState() == gameState.FREE || receivedPlayer.getState() == gameState.NOT_REG ) 
 				{   
@@ -130,12 +139,12 @@ public class Tracker {
 							}  ); 
 						}
 						break ; 
-						case "start game": 
+						case "start": 
 						{
 							// Attempt to start game by checking if players are available to join
 							executor.execute( () -> 
 								{
-								
+									startGame(command[2], command, serverSocket, receivePacket);  
 								}
 							);
 						}
@@ -154,9 +163,30 @@ public class Tracker {
 					String[] command = message.split("\\|");
 					switch(command[0]) 
 					{
-						case "end-game": 
+						case "FLIP": 
+							// add FLIP action on the list 
+							games.get(receivedPlayer.getGameId()).addMove(receivedPlayer);
 							break; 
-						case "": 
+						case "STOCK":
+							games.get(receivedPlayer.getGameId()).addMove(receivedPlayer);
+							break; 
+						case "DISCARD": 
+							games.get(receivedPlayer.getGameId()).addMove(receivedPlayer);
+							break;
+						case"FACEUP":
+							games.get(receivedPlayer.getGameId()).addMove(receivedPlayer);
+							break;  
+						case "STEAL":
+							games.get(receivedPlayer.getGameId()).addMove(receivedPlayer);						
+							break; 
+						case "END": 
+							games.get(receivedPlayer.getGameId()).addMove(receivedPlayer);
+							// de-register 
+							if(command[1].equals("Y")) 
+							{
+								// delete it 
+								games.remove(receivedPlayer.getGameId()); 
+							}
 							break; 
 							default: 
 								break; 
@@ -181,7 +211,7 @@ public class Tracker {
 	 *  optional holes [1,9] , additional players [1,3] + 1 dealer total of 4 players, make sure players are registered and 
 	 *  not in a game  
 	 * */ 
-	public static void makeGame( String dealerName, String[] command ,DatagramSocket serverSocket, DatagramPacket receivePacket ) 
+	public static void startGame( String dealerName, String[] command ,DatagramSocket serverSocket, DatagramPacket receivePacket ) 
 	{
 		
 		try 
@@ -203,9 +233,19 @@ public class Tracker {
 			{
 				/* Critical section player elements are not thread safe need to modify to make them thread safe  */ 
 				
-				dealer = new Player ( registeredPlayers.get(dealerName)); 
+				dealer =  registeredPlayers.get(dealerName); 
 				int playerCount = 0; 
-				int n = Integer.valueOf(command[3]);  
+				int n = Integer.valueOf(command[3]); 
+				int holes = -1; 
+				if(command.length == 5) 
+				{
+					holes = Integer.valueOf(command[4]); 
+				}
+				else 
+				{
+					holes = 9; 
+				}
+				
 				boolean enoughPlayers = false; 
 				ArrayList<Player> chosenPlayers = new ArrayList<Player>(); 
 				// iterate the hashmap 
@@ -235,24 +275,39 @@ public class Tracker {
 					for (int i =0; i < chosenPlayers.size(); ++i) 
 					{
 						chosenPlayers.get(i).setState(gameState.IN_GAME);
+					
+					}
+					registeredPlayers.get(dealer.getName()).setState(gameState.IN_GAME);
+					dealer.setState(gameState.IN_GAME);
+					chosenPlayers.addFirst(dealer);
+					// Create a game instance and send it
+					Game game = new Game(globalGameId.addAndGet(1),holes,dealer,chosenPlayers,serverSocket); 
+					games.put(game.getId(), game); 
+
+					// Theres enough players create a game and send a packet for success 
+					String plyStr= ""; 
+					for (int i =0; i < game.getPlayers().size() ; ++i) 
+					{
+						plyStr += game.getPlayers().get(i).getName() + " IP: " + game.getPlayers().get(i).getRIP() + " Port: " + game.getPlayers().get(i).getPPort() +"\n";  
 					}
 					
-					// Create a game instance and send it
-					Game game = new Game(globalGameId.addAndGet(1),n,dealer,chosenPlayers); 
-					// Theres enough players create a game and send a packet for success 
-					dealer.setCommand("SUCCESS");
+					dealer.setMessage("SUCCESS" + "|" + game.getId() + "|" + game.getDealer().getName() + "|" + game.getRounds() + "|" + plyStr + "\n");
 					dealer.setGameId(game.getId());
 					byte[] sendData =  constructObject(dealer);
+				
+					
+					
 					InetAddress ip = receivePacket.getAddress(); 
 					int port = receivePacket.getPort();  
 					DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ip, port); 
-					serverSocket.send(sendPacket); // sent packet 
+					serverSocket.send(sendPacket); // sent packet
+					executor.execute(game);
 				}
 				else 
 				{
 					// not enough players send an error
 					Player sendPlayer = new Player(); 
-					sendPlayer.setMessage("FAILURE");
+					sendPlayer.setMessage("FAILURE| ");
 					byte[] sendData =  constructObject(sendPlayer);
 					InetAddress ip = receivePacket.getAddress(); 
 					int port = receivePacket.getPort();  
@@ -283,7 +338,7 @@ public class Tracker {
 	// Pass the socket 
 	public static void playerRegister (DatagramSocket serverSocket, DatagramPacket receivePacket,String[] command)
 	{
-		InetAddress ip = receivePacket.getAddress(); 
+		InetAddress ip = receivePacket.getAddress(); // where it came from
 		int port =  receivePacket.getPort(); 
 		DatagramPacket sendPacket = null; 
 		String responseMessage = ""; 
@@ -293,9 +348,9 @@ public class Tracker {
 		String IP = command[2]; 
 		String tPort= command[3]; 
 		String pPort = command[4]; 
-		
+		String rIP = receivePacket.getAddress().toString().replace("/", "");
 		// Construct player 
-		Player player = new Player(name,IP,tPort, pPort, receivePacket.getAddress().toString(), gameState.FREE); 
+		Player player = new Player(name,IP,tPort, pPort, rIP, gameState.FREE); 
 		
 		// We got player info now create a player object and add it to the structure. 
 		try
@@ -332,16 +387,20 @@ public class Tracker {
 		// Games exist iterate each game print its information 
 		if (games.size() > 0) 
 		{
-			String result = "Total Games : "  + games.size(); 
+			String result = "\nTotal Games : "  + games.size() + "\n"; 
 			
 			// iterate each game and get information on each 
 			for (Map.Entry<Integer, Game> entry : games.entrySet()) 
 			{
 				result +=  "Game ID: " 
 				+ entry.getValue().getId() +
-				" Rounds: " + entry.getValue().getRounds() 
-				+ "Dealer: " + entry.getValue().getDealer().getName() + "\n"; 
+				"\nRounds: " + entry.getValue().getRounds() 
+				+ "\nDealer: " + entry.getValue().getDealer().getName() + "\n" + 
+				"Players: " + entry.getValue().printPlayers()+ "\n"; // <-- print players 
 			}
+			
+			result +="\n"; 
+			
 			return result; 
 		}
 		else 
@@ -407,7 +466,7 @@ public class Tracker {
 	/* Iterawte hashmap and prints player infromation */ 
 	public static String getAllPlayers(ConcurrentHashMap<String, Player> map) 
 	{
-		String result = "Size: " + map.size(); 
+		String result = "Size: " + map.size() + "\n"; 
 		
 		for (Map.Entry<String, Player> entry : map.entrySet()) 
 		{

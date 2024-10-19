@@ -2,36 +2,229 @@
 
 /* Each game will have a distinct id and hold number of 
  * players in this game session,m */ 
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
-public class Game {
+public class Game implements Runnable {
 	
 	/* This staic int needs to be synchronoized and atomic to avoid other clients form getting a duplicate 
 	 * id.  */ 
-	static int gameId = 1; 
-	int holes = 9; 
-	int round =0; 
-	ArrayList<Player> playersList; // can be accessed from other players outside game must be synchronized 
+	volatile int gameId = 1; 
+	volatile int holes = 9; 
+	volatile int round =0; 
+	volatile ArrayList<Player> playersList; // can be accessed from other players outside game must be synchronized 
 	Cards stock = new Cards();  // 
 	Cards discard = new Cards(); 
-	Player dealer; 
+	volatile Player dealer; 
+	volatile LinkedList<Player> moves = new LinkedList<Player>(); // while store moves the player has made 
+	static DatagramSocket sSocket = null; 
+	
+	Object lock = new Object(); 
 	
 	
-	
-	
-	public Game(int holes, Player dealer, ArrayList<Player>playersList) 
+	public Game(int gameId , int holes, Player dealer, ArrayList<Player>playersList , DatagramSocket sSocket) 
 	{
 		// Increment sync
-		gameId++;
+		this.gameId= gameId; 
 		this.holes = holes; 
 		this.playersList = playersList;
 		this.dealer = dealer;
 		discard.getCards().clear();  
-		
+		this.sSocket = sSocket; 
 	}
 	
+	
+	/* Needs to be synchronized */ 
+	public void addMove(Player playerMov) 
+	{
+		moves.add(playerMov); 
+	}
+	
+	
+	public boolean isRoundOver() 
+	{
+		return checkAllFacedUp(); 
+	}
+	
+	
+	// Print players 
+	public String printPlayers() 
+	{
+		String result= ""; 
+		synchronized(this.playersList) 
+		{ 
+			for(int i =0 ; i < this.playersList.size(); ++i) 
+			{
+				result += this.playersList.get(i).getName() + " "; 
+			}
+		}
+				
+		return result; 
+	}
+	
+	/* Method , changes state of game and player depending on the move value */ 
+	public int processMove(Player currPlayer, int index) 
+	{
+		String[] move = currPlayer.getCommand().split("\\|"); 
+		Player movPlayer = null; 
+		// get player 
+		for (int i  =0; i < this.playersList.size(); ++i ) 
+		{
+			if(currPlayer.getName().equalsIgnoreCase(playersList.get(i).getName())) 
+			{
+				movPlayer = playersList.get(i); 
+				break; 
+			}
+		}
+		
+		// Got the player now do turn 
+		switch(move[0]) 
+		{
+			case "FLIP": // end turning move
+			{ 
+				// Player is fliping 2 cards faced
+				int cardI = Integer.valueOf(move[1]); 
+				int cardJ = Integer.valueOf(move[3]); 
+				movPlayer.getDeck().get(cardI - 1 ).setFace(true);
+				movPlayer.getDeck().get(cardJ - 1).setFace(true); 
+				index--; 
+			}
+				break; 
+			case "DISCARD": // end turn move 
+			{ 
+				int cardI = -1 ; 
+				// Player is swaping a discard card in this case forced to swap 
+				if (move[1].equals("Q")) 
+				{
+					// this case just do nothing send player a message 
+					String msg = "\n"+ currPlayer.getName() + " placed discard card back\n"; 
+					sendMessage(currPlayer,"MESSAGE", msg);
+					index--; 
+				}
+				else 
+				{
+					cardI = Integer.valueOf(move[1]); 
+					movPlayer.swap(this.stock.getCards(), this.discard.getCards(), "DISCARD", cardI-1);
+				 // print all cards send it back to the player 
+					 index--; 
+				}
+			}
+				break; 
+			case "STOCK": // end turn move
+			{
+				// Check if Q was selected 
+				if (move[1].equals("Q")) 
+				{ 
+					// take stock out and put it on the discard pile remaining face up
+					Card picked= this.stock.getCards().removeFirst(); 
+					picked.setFace(true);
+					this.discard.getCards().addFirst(picked); // add it to discard pile faced up 
+					String msg = "\n"+ currPlayer.getName() + " placed stock card on discard pile\n"; 
+					sendMessage(currPlayer,"MESSAGE", msg);
+				} 
+				else 
+				{
+					// player is swaping for stock card
+					int cardI = Integer.valueOf(move[1]); 
+					movPlayer.swap(this.stock.getCards(), this.discard.getCards(), "STOCK", cardI-1);
+					index--;
+				}
+			}
+			break; 
+			case "FACEUP": // not an end turning move 
+			{
+				// face up the stock card for the player 
+				Card stCard =this.stock.getCards().get(0);
+				stCard.setFace(true);
+			}
+				break; 
+			case "STEAL": // end turn move
+			{
+				int cardI = Integer.valueOf(move[1]) - 1; 
+				int cardJ = Integer.valueOf(move[3]) - 1;
+				
+				String name = move[2]; 
+				for(int i =0; i < this.playersList.size(); ++i ) 
+				{
+					if ( this.playersList.get(i).getName().equals(name)) 
+					{
+						Player victim = this.playersList.get(i); 
+						// swap card with this player 
+						movPlayer.stealSwap(victim, cardI,cardJ);
+						// send a message 
+						String msg = movPlayer.getName() + " stole from " + victim.getName(); 
+						
+						for(int j =0;j < this.playersList.size(); ++j ) 
+						{
+							sendMessage(this.playersList.get(j),"MESSAGE", msg);
+						}
+						
+						break; 
+					}
+				}
+				index--;
+			}
+			default: 
+				System.out.println("INVALID TERM CAUGHT BY GAME SERVER"); 
+				break; 
+		}
+		
+		// now print message to all other players 
+		String info = "\nStock:" + this.stock.getCards().getFirst() + "\nDiscard:" + this.discard.getCards().getFirst() 
+				+"\n\n"+ movPlayer.printCards(playersList); 
+		// print this move to all players 
+		for (int i = 0; i < this.playersList.size() ; ++i) 
+		{
+			sendMessage(this.playersList.get(i), "MESSAGE" , info); 
+		}
+		return index; 
+	} 
+	
+	/*
+	 *  Display purposes only not for actions 
+	 * 
+	 * */ 
+	public void sendMessage(Player receiver, String header, String message) 
+	{
+		int magic_constant = 10; 
+		try 
+		{
+			// iterate create a socket and message other players 
+			String result = header + "|" + message; 
+			InetAddress ip = InetAddress.getByName(receiver.getRIP()); 
+			int port = Integer.valueOf( receiver.getPPort()); 
+			receiver.setMessage(result);
+			byte[] sendData;
+			sendData = Tracker.constructObject(receiver);
+			DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length,ip, port+magic_constant);  
+			sSocket.send(sendPacket); // send socket  
+		}
+		catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} 
+	}; 
+	
+	public int getRounds() 
+	{
+		return this.holes; 
+	}
+	
+	public void setId(int gameId) 
+	{
+		this.gameId= gameId; 
+	}
+	
+	public int getId() 
+	{
+		return gameId; 
+	}
 	
 	public ArrayList<Player> getPlayers() 
 	{
@@ -56,6 +249,7 @@ public class Game {
 				currCard.setHeld(true);
 				playersList.get(i).getDeck().add(currCard);
 			}
+			playersList.get(i).setGameId(this.gameId);
 			playersList.get(i).setState(gameState.IN_GAME);
 			playersList.get(i).setInital(true);
 		}	
@@ -64,8 +258,6 @@ public class Game {
 		Card currCard = deckRef.removeFirst(); 
 		currCard.setFace(true);
 		this.discard.getCards().addFirst(currCard);
-		
-		
 	}
 	
 	
@@ -104,6 +296,8 @@ public class Game {
 		return this.dealer; 
 	}
 	
+
+	
 	/* Start current round of the game , make sure to let the left player get their turn 
 	 * End the round when all cards are faced up and calculate the score */ 
 	public void startRound() 
@@ -120,7 +314,7 @@ public class Game {
 			}
 		}
 		
-		
+		/* Game starts here it blocks loop so I must change this into a series of state machines */ 
 		int size = this.playersList.size(); 
 		do
 		{
@@ -132,7 +326,13 @@ public class Game {
 					index = size - 1; 
 				}
 				/* Current player takes this turn */ 
-				this.playersList.get(index).takeTurn(stock.getCards(),discard.getCards(),this.playersList);
+				try 
+				{	
+					this.playersList.get(index).takeTurn(stock.getCards(),discard.getCards(),this.playersList);
+				} catch (SocketException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
 				index--;
 				i++; 
 			}
@@ -185,7 +385,7 @@ public class Game {
 	
 	
 	/* Show current round score */ 
-	public void showScore() 
+	public String showScore() 
 	{
 		int size = this.playersList.size(); 
 		String name= ""; 
@@ -201,12 +401,12 @@ public class Game {
 			score = String.valueOf( this.playersList.get(i).getScore()); 
 			result += "\n" + name + " : " + "score : " + score; 
 		}
-		System.out.println(result); 
+		return result; 
 	}
 	
 	
 	/* Get winner of the game  */ 
-	public void getWinner() 
+	public String getWinner() 
 	{
 		int size= this.playersList.size(); 
 		int min = this.playersList.get(0).getScore(); 
@@ -220,7 +420,7 @@ public class Game {
 		}
 		
 		String result = "Game Winner : " + winner.getName() + " With score of " + winner.getScore();
-		System.out.println(result); 
+		return result; 
 	}
 	
 	/* Delete all players cards and create new deck of cards */  
@@ -234,39 +434,235 @@ public class Game {
 		}
 	}
 	
-	private void startGame() 
+	/* Corresponding player to the index is notified of their turn sent to display thread and another packet sent to 
+	 * action thread which will get player input */ 
+	public void makeTurn(int index, boolean turnNotify) 
 	{
+		// size 
+		int size = this.playersList.size(); 	
+	
+			// ensure only notified once 
+			if (!turnNotify) 
+			{ 
+				// current player takes turn 
+				Player currPlayer = this.playersList.get(index); 
+				currPlayer.takeTurnNotif();
+				// Notify player to do Flip play
+				if (currPlayer.getMessage().equals("FLIPTURN")) 
+				{
+					sendMessage(currPlayer, "MESSAGE", "\n" +currPlayer.getName() + " its your turn!!!\n"); 
+					// tell player to do a flip move 
+					String cardsStr = currPlayer.printCards(playersList) + "\n";  
+					// show all cards 
+					for(int j =0; j < this.playersList.size(); ++j ) 
+					{
+						sendMessage(this.playersList.get(j),"MESSAGE", cardsStr ); 
+					}
+					// now send a packet to command thread 
+					sendAction("FLIPTURN", currPlayer); 
+	
+				} // Notify player to do a swap play
+				else if(playersList.get(index).getMessage().equals("SWAPTURN")) 
+				{
+					
+					sendMessage(currPlayer, "MESSAGE", currPlayer.getName() + " its your turn!!!\n"); 
+					// tell player to do SWAP move 
+					// show all cards and stock card
+					String cardsStr = "Stock: " + this.stock.getCards().getFirst().toString() + 
+							"\n" + "Discard: " + this.discard.getCards().getFirst().toString() + "\n" + 
+							currPlayer.printCards(playersList) + "\n"; 
+					//sendMessage(currPlayer,"MESSAGE" ,"player enter deck to swap with [1] Stock , [2] Discard"); 
+					for(int j =0; j < this.playersList.size(); ++j ) 
+					{
+						sendMessage(this.playersList.get(j),"MESSAGE", cardsStr ); 
+					}
+					// now send a packet to command thread 
+					sendAction("SWAPTURN", currPlayer); 
+				}
+			}
 		
-		// Game is turn based dealer go first they are always first in the list 
-		for (int i = 0; i < this.holes ; ++i) 
-		{
-			// intialize the game 
-			initializeGame();
-			round++; 
-			// start round 
-			startRound(); 
-			// show score
-			showScore();
-			// set up next round 
-			setUpNextRound(); 
-		}
-		
-		// show total score and winner of the game 
-		getWinner(); 
+	
 	}
 	
-	/*Test the game make sure the turn based and game logic is working correctly */ 
-	public static void main(String args[] ) 
+	
+	/* Sends action that the player is supposed to do, when player is recieved it will copy state of this object 
+	 * so when object is called it can make correct decisions */ 
+	public static void sendAction(String action, Player curr) 
 	{
-		ArrayList<Player> playersList = new ArrayList<Player>();
-		playersList.add(new Player("Player1", "127.0.0.1", "5555", "4343", "dfdf", gameState.FREE));
-		playersList.add(new Player("Player2", "127.0.0.1", "5555", "4343", "dfdf", gameState.FREE));
+		try 
+		{
+			curr.setMessage(action);
+			byte[] sendData =  Tracker.constructObject(curr);
+			InetAddress ip =  InetAddress.getByName( curr.getIP());  
+			int port = Integer.valueOf(	curr.getPPort()); 
+			DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ip, port); 
+			sSocket.send(sendPacket);  // send packet
+		}
+		catch (Exception e)
+		{
+			e.printStackTrace();
+		} 
 		
-		// Initalize game 
-		Game game = new Game(2,playersList.get(0),playersList); 
-		// Now start the game 
-		game.startGame();
+	}
+
+	/* Run game loop here */ 
+	@Override
+	public  void run() {
+		boolean gameActive = true; 
 		
+		// intialize game 
+		this.initializeGame();
+		
+		// game started loop through it 
+	
+		for (int i =0; i < this.playersList.size(); ++i) 
+		{
+			// Not a dealer send a message 
+			if(!this.dealer.getName().equals(this.playersList.get(i).getName())) 
+			{
+				sendMessage(this.playersList.get(i),"MESSAGE", "Dealer is " + this.dealer.getName() + " game has begun!\nPress **ENTER** to join session!\n"); 
+			}
+		}
+		
+		// Everyone has been notified of the game now check for turns 
+		int index = 0; 
+		// find dealer 
+			for(int i =0; i < this.playersList.size(); ++i) 
+			{
+				if(this.playersList.get(i) == this.dealer) 
+				{
+					index = i - 1; 
+					break; 
+				}
+			}
+		
+			if(index < 0 ) 
+			{
+				index = this.playersList.size() - 1; 
+			}
+		boolean notifedTurn = false; 
+		do 
+		{
+			/* Moves list contain players moves in the game in fifo order*/ 
+			synchronized (moves) 
+			{  
+				if (!moves.isEmpty()) 
+				{
+					Player move = moves.removeFirst(); 
+					int prior = index; 
+					// Now process move
+					index = processMove(move, index); 
+	 
+					notifedTurn = (index == prior);  
+					// change turn 
+					if (index < 0) 
+					{
+						index = this.playersList.size() - 1; 
+					}
+				}
+			} 
+			if(index < 0 ) 
+			{
+				index = this.playersList.size() - 1; 
+			}
+			
+			// Check round is over before making a move
+			if (isRoundOver()) 
+			{
+				round++; // increment 
+				
+				// Round is over now calculate the score of each player 
+				for(int i =0; i < this.playersList.size(); ++i) 
+				{
+					calculatePlayerScore(this.playersList.get(i)); 
+				}
+				// compute score and message all other players 
+				String roundScore = "\n"+ showScore() + "\n"; 
+				// Send everyone the score
+				for(int i =0; i < this.playersList.size(); ++i) 
+				{
+					sendMessage(this.playersList.get(i), "MESSAGE", roundScore) ;
+				}
+				// set up next round if needed 
+				this.setUpNextRound();
+				// reinitalize the game 
+				this.initializeGame(); 
+			}
+			else // round not over do a move  
+			{
+				// Make player turn
+				makeTurn(index, notifedTurn); 
+				notifedTurn = true;
+			}
+			
+			// Check game is over all holes have been reached 
+			if (round == holes) 
+			{
+				// announce the winner
+				String winner = getWinner();
+				for(int i =0; i < this.playersList.size(); ++i) 
+				{
+					sendMessage(this.playersList.get(i),"MESSAGE", winner); 
+				}
+				
+				try 
+				{
+					Thread.sleep(5000);
+				} 
+				catch (InterruptedException e) 
+				{
+					e.printStackTrace();
+				}
+				
+				// send a message to the dealer to start another game or end it 
+				sendMessage(this.dealer,"OVER", "ROUNDOVER");
+				
+				// send message to other players that game notify them
+				for(int i =0; i < this.playersList.size(); ++i ) 
+				{
+					if(!this.playersList.get(i).getName().equals(this.dealer.getName())) 
+					{
+						sendMessage(this.playersList.get(i), "MESSAGE" , "Game has ended! Let your dealer decide to continue the game!\n"); 
+					}
+				}
+				
+				sendAction("OVER", this.dealer); 
+				// some branch if over then break it otherwise continue  
+				do 
+				{
+					synchronized (moves) 
+					{  
+						if (!moves.isEmpty()) 
+						{
+							Player move = moves.removeFirst(); 
+							gameActive = ( !move.getCommand().split("\\|")[1].equals("Y")); 
+							// add code to let players leave?
+							
+							if(gameActive) 
+							{
+								for(int i =0;i < this.playersList.size(); ++i)
+								{
+									sendMessage(this.playersList.get(i), "MESSAGE" , "Dealer Restarted the game!\n"); 
+									this.playersList.get(i).setScore(0);
+									round =0 ; 
+								}
+							}
+							break; 
+						}
+					}
+				}
+				while(true); 
+			}
+		}
+		while(gameActive); 
+		
+		// send a message telling other players dealers ended the game
+		for(int i =0; i < this.playersList.size(); ++i) 
+		{
+			sendAction("END", this.playersList.get(i)); 
+			this.playersList.get(i).setState(gameState.FREE); // Free each statea 
+			
+		}
 	}
 	
 }

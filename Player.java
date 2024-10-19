@@ -1,11 +1,16 @@
+import java.io.IOException;
 import java.io.Serializable;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.Scanner;
 
 enum gameState
 {
-	FREE,IN_GAME, NOT_REG
+	FREE,IN_GAME, NOT_REG, IN_LOBBY
 }
 
 public class Player implements Serializable
@@ -18,16 +23,17 @@ public class Player implements Serializable
 	 * 
 	 */
 	
-	private String name, dIP, rIP, tPort, pPort; 
-	private gameState state; 
-	private LinkedList<Card> playerDeck = new LinkedList<Card>(); 
-	private int score =0 ;
-	private boolean initial = true; 
-	private int gameId = -1; 
-	private String command = null; 
-	transient Scanner scan = new Scanner(System.in); 
-	private Cards stock = new Cards(); 
-	private String message; 
+	private volatile  String name, dIP, rIP, tPort, pPort; 
+	private volatile gameState state; 
+	private volatile LinkedList<Card> playerDeck = new LinkedList<Card>(); 
+	private volatile  int score =0 ;
+	private volatile boolean initial = true; 
+	private volatile int gameId = -1; 
+	private volatile String command = null; 
+	transient  Scanner scan = new Scanner(System.in); 
+	private volatile Cards stock = new Cards(); 
+	private volatile String message; 
+
 	
 	public Player () 
 	{
@@ -140,7 +146,7 @@ public class Player implements Serializable
 	
 	public String getRIP() 
 	{
-		return dIP; 
+		return rIP; 
 	}
 	
 	public gameState getState() 
@@ -173,11 +179,15 @@ public class Player implements Serializable
 	}
 	
 	/* 
-	 * Player takes a turn, they should be given a menu 
+	 * Player takes a turn, sent message to client of the menu and selection take turn here will 
+	 * accept a message from the client that will be the input 
 	 * */ 
-	public void takeTurn(ArrayList<Card> stock, ArrayList<Card> discard, ArrayList <Player> players) 
+	public void takeTurn(ArrayList<Card> stock, ArrayList<Card> discard, ArrayList <Player> players) throws SocketException 
 	{
 		String input = ""; 
+		// Sends a message to the current player create a socket and send them a message
+		
+		
 		if (this.initial) 
 		{
 			int n =2; 
@@ -188,6 +198,7 @@ public class Player implements Serializable
 				System.out.println( this.name + " flip " + (n) + " cards enter corresponding number\n");
 				printCards(players); 
 				input = scan.next();
+				scan.nextLine(); // clean up
 				// Valid number face up corresponding card 
 				if (input.toCharArray()[0] < '7' && input.toCharArray()[0] > '0') 
 				{ 
@@ -197,7 +208,7 @@ public class Player implements Serializable
 				}
 				else 
 				{
-					System.out.println("Invalid selectiont try again\n"); 
+					System.out.println("Invalid selection try again\n"); 
 				}
 				 
 				 
@@ -217,6 +228,7 @@ public class Player implements Serializable
 			System.out.println("Discard: "+ discard.getFirst() + "\n");
 			printCards(players); 
 			input = scan.next();
+			scan.nextLine(); // clean up
 			switch (input) 
 			{
 				case "1": 
@@ -245,6 +257,7 @@ public class Player implements Serializable
 			printCards(players); 
 			System.out.println("[Q] to discard card\n"); 
 			input = scan.next(); 
+			scan.nextLine(); // clean up
 			switch (input) 
 			{
 				case "1":
@@ -354,11 +367,26 @@ public class Player implements Serializable
 		
 	}
 	
+	
+	// Method used to swap a card with another player 
+	public void stealSwap(Player victim,int mIndex, int vIndex) 
+	{
+		Card vCard = victim.getDeck().get(vIndex); 
+		Card myCard = this.getDeck().get(mIndex); 
+		vCard.setFace(true);
+		myCard.setFace(true);
+		
+		// swap them
+		this.getDeck().set(mIndex, vCard);
+		victim.getDeck().set(vIndex, myCard);
+		
+	} 
+	
 	/* Swap the cards */ 
-	private void swap(ArrayList<Card> stock, ArrayList<Card> discard , String choice , int n ) 
+	public void swap(ArrayList<Card> stock, ArrayList<Card> discard , String choice , int n ) 
 	{
 		
-		if (choice.equalsIgnoreCase("stock")) 
+		if (choice.equalsIgnoreCase("STOCK")) 
 		{
 			// Swap with stock card 
 			Card A = stock.removeFirst(); 
@@ -384,7 +412,7 @@ public class Player implements Serializable
 	}
 	
 	// Print current player and other players cards 
-	public void printCards(ArrayList<Player> players) 
+	public String  printCards(ArrayList<Player> players) 
 	{
 		
 		
@@ -434,7 +462,258 @@ public class Player implements Serializable
 		}
 		
 		
-		System.out.println(result + "\n"); 
+		return result; 
+	}
+
+	/* Method just checks what action the player should take */ 
+	public void takeTurnNotif() 
+	{
+		// initial means player must swap 2 cards 
+		if(this.initial) 
+		{
+			this.message = "FLIPTURN"; 
+			this.initial = false; 
+			// now send a message
+		}
+		else 
+		{
+			this.message = "SWAPTURN"; 
+		}
 	}
 	
+	/*Method sends packet depending on action taken  */
+	public void takeAction(String Action, DatagramSocket socket) throws IOException 
+	{
+		
+		Scanner scan = new Scanner(System.in);
+		String input = ""; 
+		boolean flag = true; 
+		// chose  
+		switch (Action) 
+		{
+			case "FLIPTURN": 
+			{
+				int n =2; 
+				this.initial = false; 
+				String msg =""; 
+				do
+				{
+					msg += "FLIP|"; 
+					System.out.println("\n" + this.name + " flip " + (n) + " cards enter corresponding number [1,6]\n");
+					input = scan.next();
+					scan.nextLine(); // clean up
+					// Valid number face up corresponding card 
+					if (input.toCharArray()[0] < '7' && input.toCharArray()[0] > '0') 
+					{ 
+						int number =Integer.valueOf(input);
+						msg += number + "|"; 
+						this.playerDeck.get(number-1).setFace(true);
+						n--; 
+					}
+					else 
+					{
+						System.out.println("Invalid selection try again\n"); 
+					}
+					
+				}while(n>0); 
+				
+				// Now send the actions to
+				InetAddress add =  InetAddress.getByName( this.dIP); 
+				int port = Integer.valueOf( this.tPort); 
+				this.command = msg; 
+				byte[] sendData = Tracker.constructObject(this); 
+				DatagramPacket packet = new DatagramPacket(sendData, sendData.length, add, port); 
+				socket.send(packet);
+				System.out.println("packet sent"); 
+				flag = false; 
+			}
+				break;  
+			case "SWAPTURN": 
+			{
+				String msg = ""; 
+				String choice = ""; 
+				// pick either Stock or Discard
+				do 
+				{
+					System.out.println( this.getName() + " enter deck to swap with [1] Stock , [2] Discard , [3] Steal\n"); 
+					input = scan.next();
+					scan.nextLine(); // clean up
+					System.out.println(input); 
+					// out of range check
+					if(input.toCharArray()[0] < '4' && input.toCharArray()[0] > '0') 
+					{
+						switch(input) 
+						{
+							case"1":
+								{
+									flag = false; 
+									choice = "STOCK"; 
+									msg += choice + "|";  
+									// send a packet message to face up the card and print it to everyone in return 
+									String specMessage = "FACEUP|"; 
+									InetAddress add =  InetAddress.getByName( this.dIP); 
+									int port = Integer.valueOf( this.tPort); 
+									this.command = specMessage; 
+									byte[] sendData = Tracker.constructObject(this); 
+									DatagramPacket packet = new DatagramPacket(sendData, sendData.length, add, port); 
+									socket.send(packet);
+
+								}
+								break; 
+							case "2": 
+								{
+									flag = false;
+									choice = "DISCARD"; 
+									msg += choice + "|"; 
+									
+									// Discard now need to check
+								}
+								break; 
+							case "3":
+							{
+								flag = false; 
+								choice = "STEAL";
+								msg += choice + "|"; 
+							}
+								break; 
+							default: 
+								
+						}
+					}
+					else 
+					{
+						System.out.println("Invalid input\n"); 
+					}
+				}
+				while(flag); 
+				flag = true; 
+				System.out.println("You chose " + choice  + " card " );
+				
+				// Not stealling its swapping
+				if(!choice.equals("STEAL"))
+				{  
+					System.out.println("Enter input to swap card with [1,6] or discard with [Q]");
+					input = scan.next();
+					scan.nextLine(); // clean up
+					// select cards [1,6]
+					do 
+					{
+						//  keep within range 
+						if (input.toCharArray()[0]  > '0' && input.toCharArray()[0] < '7' ) 
+						{
+							int cardNumber = Integer.valueOf(input); 
+							// check if it is face up
+							msg += cardNumber ; 
+							flag = false; 
+						}
+						else if (input.toCharArray()[0] == 'Q') 
+						{
+							msg += "Q"; 
+							flag = false; 
+						}
+						else 
+						{
+							System.out.println("Invalid selection");  
+						}
+					}
+					while(flag); 
+					// Now send the actions to
+					InetAddress add =  InetAddress.getByName( this.dIP); 
+					int port = Integer.valueOf( this.tPort); 
+					this.command = msg; 
+					System.out.println(msg); 
+					byte[] sendData = Tracker.constructObject(this); 
+					DatagramPacket packet = new DatagramPacket(sendData, sendData.length, add, port); 
+					socket.send(packet); 
+					flag = false ; 
+				}
+				else 
+				{
+					// Ask card to swap 
+					System.out.println("Enter input card you want to swap [1,6]\n");
+					do
+					{ 
+						input = scan.next(); 
+						
+						if (input.toCharArray()[0]  > '0' && input.toCharArray()[0] < '7' ) 
+						{
+							int cardNumber = Integer.valueOf(input); 
+							// check if it is face up
+							msg +=  cardNumber ; 
+							break; 
+						}
+						else 
+						{
+							System.out.print("Invalid input\n");
+						}
+						// now make the msg
+					}
+					while(flag); 
+					scan.nextLine(); 
+					// Ask name of the player to steal from 
+					System.out.println("Enter name of player to steal from\n");
+					String name = scan.next(); 
+					msg += "|" +name; 
+					System.out.println("You are stealing from " + name + " pick card to steal [1,6]" );
+					do
+					{ 
+						input = scan.next(); 
+						
+						if (input.toCharArray()[0]  > '0' && input.toCharArray()[0] < '7' ) 
+						{
+							int cardNumber = Integer.valueOf(input); 
+							// check if it is face up
+							msg += "|"+ cardNumber ; 
+							flag = false; 
+						}
+						else 
+						{
+							System.out.print("Invalid input\n");
+						}
+ 
+					}
+					while(flag); 
+					// send packet 
+					InetAddress add =  InetAddress.getByName( this.dIP); 
+					int port = Integer.valueOf( this.tPort); 
+					this.command = msg; 
+					System.out.println(msg); // print it out check if it works 
+					byte[] sendData = Tracker.constructObject(this); 
+					DatagramPacket packet = new DatagramPacket(sendData, sendData.length, add, port); 
+					socket.send(packet); 
+					flag = false ; 
+				}
+			}
+				break; 
+			case "OVER": 
+			{
+				String in = null; 
+				System.out.println("End game? [Y/N]");
+				boolean dummy = true; 
+				do 
+				{
+					in = scan.next(); 
+					scan.nextLine(); // clean up
+					if (in.equals("Y") || in.equals("N")) 
+					{
+						break; 
+					}
+				}
+				while(dummy); 
+				// Now send the actions to
+				String msg = "END|"+in; 
+				InetAddress add =  InetAddress.getByName( this.dIP); 
+				int port = Integer.valueOf( this.tPort); 
+				this.command = msg;  
+				byte[] sendData = Tracker.constructObject(this); 
+				DatagramPacket packet = new DatagramPacket(sendData, sendData.length, add, port); 
+				socket.send(packet); 
+				
+			}
+				break; 
+				default: 
+					System.out.println("ERROR TURN NOT VALID"); 
+				break; 
+		}
+	}
 }
