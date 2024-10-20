@@ -32,7 +32,7 @@ public class Tracker {
 	public volatile static AtomicInteger globalGameId = new AtomicInteger(); 
 	/* Create cached threads, threads will be create and disposed of on runtime */
 	public final static ExecutorService executor = Executors.newCachedThreadPool(); 
-	
+
 	public static void main(String[] args) throws ClassNotFoundException {
 		
 		
@@ -46,7 +46,6 @@ public class Tracker {
 			portNumber = 5001;
 		}
 		// Tracker server has the same port number and IP address as it needs to be found by the client 
-		ByteArrayOutputStream bStream = new ByteArrayOutputStream(); 
 		// Exception to catch failure to port 
 		try
 		{
@@ -68,10 +67,10 @@ public class Tracker {
 				ObjectInputStream iStream = new ObjectInputStream( new ByteArrayInputStream(receivePacket.getData())); 
 				Player receivedPlayer = (Player)iStream.readObject(); 
 				iStream.close(); 
-				//System.out.println(receivedPlayer.getMessage()); 
-				//System.out.println(receivedPlayer.getCommand()); 
+				System.out.println(receivedPlayer.getMessage()); 
+				System.out.println(receivedPlayer.getCommand()); 
 				// got the player check if the player is in the game 
-				if ( receivedPlayer.getState() == gameState.FREE || receivedPlayer.getState() == gameState.NOT_REG ) 
+				if ( receivedPlayer.getState() != gameState.IN_GAME ) 
 				{   
 					String message = new String(receivedPlayer.getCommand());
 					String[] command = message.split("\\|");  
@@ -105,9 +104,16 @@ public class Tracker {
 									e.printStackTrace(); 
 								}
 							}); 
+							break; 
+						}
+						case "resume":
+						{
+							// add move to the buffer 
+							executor.execute( () -> {resume( serverSocket, receivePacket,receivedPlayer); });
+								
 							
 						}
-						break; 
+							break ;   
 						case "query games": 
 						{
 							executor.execute( () ->
@@ -142,13 +148,19 @@ public class Tracker {
 						case "start": 
 						{
 							// Attempt to start game by checking if players are available to join
-							executor.execute( () -> 
-								{
+							
 									startGame(command[2], command, serverSocket, receivePacket);  
-								}
-							);
+							
 						}
 							break; 
+						case "end":
+						{
+							// check player 
+							executor.execute( () -> {
+							endGame(command,serverSocket, receivePacket,receivedPlayer); 
+							}); 
+						}
+						break; 
 						default: 
 						{
 							System.out.println("Received an unknown command"); 
@@ -205,7 +217,85 @@ public class Tracker {
 
 	}
 	
+	public static void resume( DatagramSocket sock, DatagramPacket receivedPacket, Player receivedPlayer) 
+	{
+		InetAddress ip = receivedPacket.getAddress(); 
+		int port = receivedPacket.getPort(); 
+		int key = receivedPlayer.getGameId();  
+		try 
+		{
+			// player doesnt or exist or exists but not a dealer return fail
+			if ( !registeredPlayers.containsKey(receivedPlayer.getName()) || games.size() == 0 || !games.containsKey(key) ||
+						!games.get(key).dealer.getName().equals(receivedPlayer.getName()) ) 
+			{
+				// send a fail back to the player 
+				// duplicate users 
+				String responseMessage = "FAILURE";
+				receivedPlayer.setMessage(responseMessage);
+				byte[] sendData = constructObject( receivedPlayer);  
+				DatagramPacket sendPacket = new DatagramPacket(sendData,sendData.length, ip, port);
+				//sock.send(sendPacket);
+			}
+			else 
+			{
+				// resume the game dont delete it 
+				receivedPlayer.setCommand("END|N"); 
+				games.get(receivedPlayer.getGameId()).addMove(receivedPlayer);
+				String responseMessage = "SUCCESS";
+				receivedPlayer.setMessage(responseMessage);
+				byte[] sendData = constructObject( receivedPlayer);  
+				DatagramPacket sendPacket = new DatagramPacket(sendData,sendData.length, ip, port);
+				//sock.send(sendPacket);
+			}
+		}
+		catch(Exception e)
+		{
+			e.printStackTrace();
+		}
+	}
 	
+	
+	/* Method will end currently running game assumming player is the dealer of the game  */
+	public static void endGame(String[] command, DatagramSocket sock, DatagramPacket receivedPacket, Player receivedPlayer) 
+	{
+		// check if player even exists or in any of the games as a dealer
+		InetAddress ip = receivedPacket.getAddress();  
+		int port = receivedPacket.getPort();
+		int key = Integer.valueOf( command[1]); 
+		try 
+		{ 
+			// player doesnt or exist or exists but not a dealer return fail
+			if ( !registeredPlayers.containsKey(receivedPlayer.getName()) || games.size() == 0 || !games.containsKey(key) ||
+						!games.get(key).dealer.getName().equals(receivedPlayer.getName()) )
+			{
+				// send a fail back to the player 
+				// duplicate users 
+				String responseMessage = "FAILURE";
+				receivedPlayer.setMessage(responseMessage);
+				byte[] sendData = constructObject( receivedPlayer);  
+				DatagramPacket sendPacket = new DatagramPacket(sendData,sendData.length, ip, port);
+				sock.send(sendPacket);
+			}
+			else 
+			{
+				// delete the game add end move to the game loop
+				receivedPlayer.setCommand("END|Y");
+				games.get(receivedPlayer.getGameId()).addMove(receivedPlayer);
+				// delete the game session
+				games.remove(receivedPlayer.getGameId()); 
+				String responseMessage = "SUCCESS";
+				receivedPlayer.setMessage(responseMessage);
+				byte[] sendData = constructObject( receivedPlayer);  
+				DatagramPacket sendPacket = new DatagramPacket(sendData,sendData.length, ip, port);
+				sock.send(sendPacket);
+			}
+		}
+		catch(Exception e) 
+		{
+			e.printStackTrace(); 
+		}
+		
+	}
 	
 	/* Get player will be the dealer of the game and check if there is enough players to start a game 
 	 *  optional holes [1,9] , additional players [1,3] + 1 dealer total of 4 players, make sure players are registered and 

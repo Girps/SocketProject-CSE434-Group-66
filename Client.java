@@ -15,7 +15,7 @@ public class Client
 	
 	// Each client gets one player 
 	
-	public static Player player = new Player(); 
+	public static volatile Player player = new Player(); 
 	
 	public static DatagramSocket cSocket = null; 
 	public static DatagramSocket otherSocket = null; 
@@ -24,7 +24,7 @@ public class Client
 		final int portNumber = 5001; 
 		final String ipAdd = "127.0.0.1"; 
 		DatagramPacket sendPacket; 
-		DatagramPacket receivePacket = null;
+		DatagramPacket receivePacket = null; 
 		
 		byte[] receiveData = new byte[5000];  
 		Scanner in = new Scanner(System.in);
@@ -36,6 +36,7 @@ public class Client
 			boolean flag = true; 
 			while (flag)
 			{
+				
 				// Client can only use these command when not in game
 				if (player.getState() != gameState.IN_GAME) 
 				{ 
@@ -43,7 +44,7 @@ public class Client
 					System.out.println("Enter command:\n"); 
 					
 					String[] command = in.nextLine().split(" "); 
-					
+					System.out.println(command[0]); 
 					// after entering a command skip and join the game! 
 					if (player.getState() == gameState.IN_GAME) 
 					{
@@ -87,10 +88,12 @@ public class Client
 									// now create another thread dedicated to listening for gameStatef
 									Thread thread = new Thread( () -> 
 									{ 
+										boolean runThread = true; 
 										do 
 										{ 
 											try 
 											{
+											 
 												DatagramPacket rpak = new DatagramPacket(receiveData,receiveData.length, InetAddress.getByName(ipStr), tPort); 
 												otherSocket.receive(rpak);
 												
@@ -111,12 +114,13 @@ public class Client
 															System.out.println(info[1]); 
 															break;
 														case "OVER":
-															// send message about score
+															// send message about round 
 															System.out.println(info[1]); 
 															break; 
 														case "END":
 															// signal end 
-															System.out.println(info[1]); 
+															System.out.println(info[1]);
+															player.setState(gameState.FREE); 
 															break;
 														default:
 															break;
@@ -131,7 +135,7 @@ public class Client
 											
 										
 										}
-										while(true); 
+										while(runThread); 
 										
 									}); 
 									thread.start();
@@ -144,6 +148,18 @@ public class Client
 							
 						}
 						break; 
+						case "resume": // command to resume game assuming there is one
+						{
+							
+							String query = "resume"; 
+							Player sendPlayer = new Player(player);
+							sendPlayer.setCommand(query);
+							byte[] sendData = Tracker.constructObject(sendPlayer); 
+							sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName(ipAdd), portNumber); 
+							cSocket.send(sendPacket); // Send packet 
+
+						}
+						break; 
 						case "query":
 						{	
 						// Command will not update player 
@@ -152,15 +168,14 @@ public class Client
 								String query = "query players"; 
 								Player sendPlayer = new Player(player);
 								sendPlayer.setCommand(query);
-								byte[] sendData = Tracker.constructObject(sendPlayer); 
+								byte[] sendData = new byte[5000]; 
 								sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName(ipAdd), portNumber); 
 								cSocket.send(sendPacket); // Send packet 
 								
 								// Wait for packet to return 
 								receivePacket = new DatagramPacket(receiveData,receiveData.length, InetAddress.getByName(ipAdd) , portNumber); 
 								cSocket.receive(receivePacket); // recieve packet
-								
-								System.out.println ( cSocket.getLocalPort()); 
+
 								
 								ObjectInputStream iStream = new ObjectInputStream(new ByteArrayInputStream(receivePacket.getData()));  
 								// Receive player DO NOT update our real player 
@@ -216,6 +231,29 @@ public class Client
 							} 
 						}
 						break; 
+						case "end": // 2 parameters 
+						{
+							// de register the player from the game 
+							String query = "end|" + command[1] + "|" + command[2];
+							Player sendPlayer = player; // get current player to get the id 
+							sendPlayer.setCommand(query); 
+							System.out.println(query); 
+							byte[] sendData = Tracker.constructObject(sendPlayer); 
+							sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName(ipAdd), portNumber); 
+							cSocket.send(sendPacket); // send packet
+							
+							
+							receivePacket = new DatagramPacket(receiveData,receiveData.length, InetAddress.getByName(ipAdd) , portNumber); 
+							// Block and receive
+							cSocket.receive(receivePacket);
+							ObjectInputStream iStream = new ObjectInputStream(new ByteArrayInputStream(receivePacket.getData()));
+							Player recPlayer = (Player)iStream.readObject(); 
+							iStream.close(); // close
+							String result = new String ( recPlayer.getMessage()); 
+							System.out.println(result);
+							
+						} 
+						break; 
 						case "start":
 						{
 							if (command.length < 4 || command.length > 5) 
@@ -242,15 +280,22 @@ public class Client
 								Player recPlayer = (Player)iStream.readObject(); 
 								String[] info = recPlayer.getMessage().split("\\|"); 
 								String result = new String ( info[0] ); 
-								
+								//iStream.close(); // close
 								// Successful update the player to IN_GAME and change commands to player commands 
 								if(result.equalsIgnoreCase("SUCCESS")) 
 								{
 									int id =  recPlayer.getGameId();
 									String rounds = info[1]; 
 									String players = info[2]; 
+									if(info.length == 5) { 
 									System.out.println("Game session: " + id + "\ndealer : " + player.getName() + "\nHoles : " + info[3] + "!\n" + info[4]  );
 									player = recPlayer; // updated the player  	
+									}
+									else 
+									{
+										System.out.println("Game session: " + id + "\ndealer : " + player.getName() + "\nHoles : " + info[3] + "!\n" + info[4]  );
+										player = recPlayer;
+									}
 								}
 								else 
 								{
@@ -302,6 +347,8 @@ public class Client
 						else if(res.equals("OVER")) 
 						{
 							player.takeAction(res, cSocket);
+							player.setState(gameState.IN_LOBBY); // so break it 
+							break; 
 						}
 						else if(res.equals("END")) 
 						{
@@ -309,7 +356,6 @@ public class Client
 							inGame= false;
 							// change gamestate of player
 							player.setState(gameState.FREE);
-						
 							break; 
 						}
 					}
@@ -327,8 +373,16 @@ public class Client
 	
 	public static String registerCommand(String args[]) 
 	{
-		String message  = args[0] + "|" + args[1] + 
-				"|" + args[2] + "|" +args[3] + "|" + args[4];    
+		String message = ""; 
+		if ( args.length == 5) {
+		message  = args[0] + "|" + args[1] + 
+				"|" + args[2] + "|" +args[3] + "|" + args[4];
+		}
+		else 
+		{
+			message  = args[0] + "|" + args[1] + 
+					"|" + args[2] + "|" +args[3] ; 	
+		}
 		
 		return message;
 	}

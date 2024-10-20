@@ -512,9 +512,8 @@ public class Game implements Runnable {
 		
 		// intialize game 
 		this.initializeGame();
-		
 		// game started loop through it 
-	
+
 		for (int i =0; i < this.playersList.size(); ++i) 
 		{
 			// Not a dealer send a message 
@@ -622,11 +621,17 @@ public class Game implements Runnable {
 				{
 					if(!this.playersList.get(i).getName().equals(this.dealer.getName())) 
 					{
-						sendMessage(this.playersList.get(i), "MESSAGE" , "Game has ended! Let your dealer decide to continue the game!\n"); 
+						sendMessage(this.playersList.get(i), "MESSAGE" , "Game has ended! Let your dealer decide to continue the game!\n");
+						sendMessage(this.playersList.get(i), "OVER", " "); 
 					}
 				}
 				
-				sendAction("OVER", this.dealer); 
+				// send to everyone 
+				for(int i =0 ; i < this.playersList.size(); ++i) 
+				{
+					sendAction("OVER", this.playersList.get(i)); 
+				}
+				
 				// some branch if over then break it otherwise continue  
 				do 
 				{

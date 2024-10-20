@@ -687,6 +687,7 @@ public class Player implements Serializable
 				break; 
 			case "OVER": 
 			{
+				/*
 				String in = null; 
 				System.out.println("End game? [Y/N]");
 				boolean dummy = true; 
@@ -708,7 +709,8 @@ public class Player implements Serializable
 				byte[] sendData = Tracker.constructObject(this); 
 				DatagramPacket packet = new DatagramPacket(sendData, sendData.length, add, port); 
 				socket.send(packet); 
-				
+				*/ 
+				System.out.println("\nGame is over.The dealer can use command end <id> <player> to end the game.\nOtherwise use command restart to start the game again.\n"); 
 			}
 				break; 
 				default: 
