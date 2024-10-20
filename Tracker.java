@@ -43,7 +43,7 @@ public class Tracker {
 		}
 		else 
 		{
-			portNumber = 5001;
+			portNumber = 5002;
 		}
 		// Tracker server has the same port number and IP address as it needs to be found by the client 
 		// Exception to catch failure to port 
@@ -69,6 +69,7 @@ public class Tracker {
 				iStream.close(); 
 				System.out.println(receivedPlayer.getMessage()); 
 				System.out.println(receivedPlayer.getCommand()); 
+				receivedPlayer.getRIP(); 
 				// got the player check if the player is in the game 
 				if ( receivedPlayer.getState() != gameState.IN_GAME ) 
 				{   

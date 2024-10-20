@@ -21,8 +21,8 @@ public class Client
 	public static DatagramSocket otherSocket = null; 
 	public static void main(String[] args) 
 	{
-		final int portNumber = 5001; 
-		final String ipAdd = "127.0.0.1"; 
+		 int portNumber = 5001; 
+		String ipAdd = "127.0.0.1"; 
 		DatagramPacket sendPacket; 
 		DatagramPacket receivePacket = null; 
 		
@@ -61,13 +61,17 @@ public class Client
 								String ipStr = command[2]; 
 								String tPortStr = command[3]; 
 								String pPortStr = command[4]; 
+								
 								int pPort = Integer.parseInt(pPortStr); 
 								int tPort = Integer.parseInt(tPortStr); 
+								ipAdd = ipStr;
+								portNumber = tPort;
 								player = new Player(playerStr,  ipStr, tPortStr, pPortStr, "Client_Address", gameState.FREE); 
 								cSocket = new DatagramSocket(pPort); // starts here 
 								otherSocket = new DatagramSocket(pPort+10);
 								String message = registerCommand(command); 
 								player.setCommand(message);
+								player.getRIP(); 
 								
 								// Serialize player object 
 								 
