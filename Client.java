@@ -168,7 +168,7 @@ public class Client
 								String query = "query players"; 
 								Player sendPlayer = new Player(player);
 								sendPlayer.setCommand(query);
-								byte[] sendData = new byte[5000]; 
+								byte[] sendData = Tracker.constructObject(sendPlayer); 
 								sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName(ipAdd), portNumber); 
 								cSocket.send(sendPacket); // Send packet 
 								

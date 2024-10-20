@@ -109,9 +109,10 @@ public class Tracker {
 						case "resume":
 						{
 							// add move to the buffer 
-							executor.execute( () -> {resume( serverSocket, receivePacket,receivedPlayer); });
-								
-							
+							executor.execute( () -> 
+							{
+								resume( serverSocket, receivePacket,receivedPlayer); 
+							});
 						}
 							break ;   
 						case "query games": 
@@ -148,9 +149,11 @@ public class Tracker {
 						case "start": 
 						{
 							// Attempt to start game by checking if players are available to join
-							
+							executor.execute( () -> 
+								{
 									startGame(command[2], command, serverSocket, receivePacket);  
-							
+								}
+							);
 						}
 							break; 
 						case "end":
@@ -234,18 +237,17 @@ public class Tracker {
 				receivedPlayer.setMessage(responseMessage);
 				byte[] sendData = constructObject( receivedPlayer);  
 				DatagramPacket sendPacket = new DatagramPacket(sendData,sendData.length, ip, port);
-				//sock.send(sendPacket);
+				sock.send(sendPacket);
 			}
 			else 
 			{
 				// resume the game dont delete it 
 				receivedPlayer.setCommand("END|N"); 
-				games.get(receivedPlayer.getGameId()).addMove(receivedPlayer);
 				String responseMessage = "SUCCESS";
 				receivedPlayer.setMessage(responseMessage);
 				byte[] sendData = constructObject( receivedPlayer);  
 				DatagramPacket sendPacket = new DatagramPacket(sendData,sendData.length, ip, port);
-				//sock.send(sendPacket);
+				sock.send(sendPacket);
 			}
 		}
 		catch(Exception e)
