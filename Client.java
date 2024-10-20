@@ -44,7 +44,7 @@ public class Client
 					System.out.println("Enter command:\n"); 
 					
 					String[] command = in.nextLine().split(" "); 
-					System.out.println(command[0]); 
+					
 					// after entering a command skip and join the game! 
 					if (player.getState() == gameState.IN_GAME) 
 					{
@@ -142,6 +142,7 @@ public class Client
 										while(runThread); 
 										
 									}); 
+									thread.setDaemon(true);
 									thread.start();
 								}
 							}
@@ -241,7 +242,7 @@ public class Client
 							String query = "end|" + command[1] + "|" + command[2];
 							Player sendPlayer = player; // get current player to get the id 
 							sendPlayer.setCommand(query); 
-							System.out.println(query); 
+							
 							byte[] sendData = Tracker.constructObject(sendPlayer); 
 							sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName(ipAdd), portNumber); 
 							cSocket.send(sendPacket); // send packet
